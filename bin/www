@@ -1,0 +1,95 @@
+require('dotenv').config();
+const initializeDatabase = require('../dbs');
+const app = require('../app');
+var createError = require('http-errors');
+const http = require('http');
+const fileUpload = require('express-fileupload');
+
+const port = process.env.PORT || '7000';
+app.set('port', port);
+app.use(fileUpload());
+
+function onError(error) {
+  if (error.syscall !== 'listen') {
+    throw error;
+  }
+
+  const bind = typeof port === 'string' ?
+    'Pipe ' + port :
+    'Port ' + port;
+
+  switch (error.code) {
+    case 'EACCES':
+      console.error(bind + ' requires elevated privileges');
+      process.exit(1);
+    case 'EADDRINUSE':
+      console.error(bind + ' is already in use');
+      process.exit(1);
+    default:
+      throw error;
+  }
+}
+
+initializeDatabase((err, dbC) => {
+
+  const dbClient = dbC;
+
+  const execute = async () => {
+    try {
+      await dbClient.query(`create table if not exists User (
+        id int not null auto_increment,
+        name varchar(255) not null,
+        email varchar(255) not null,
+        password varchar(255) not null,
+        primary key(id)
+        )`)
+
+      await dbClient.query(`create table if not exists Task 
+        (taskid int not null auto_increment,
+        user_id int,
+        title varchar(255) not null,
+        dueDate varchar(255) not null,
+        attachment varchar(255) not null,
+        primary key(taskid),
+        foreign key (user_id) references  User(id)
+        )`)
+
+      return true;
+    } catch (error) {
+      console.error(error.stack);
+      return false;
+    }
+  };
+
+  execute().then(result => {
+    if (result) {
+      console.log('Table created');
+    }
+  });
+
+  app.set('trust proxy', 1);
+  const server = http.createServer(app);
+
+  const adminAPI = require('../routes/admin')(dbClient)
+  app.use('/api/admin', adminAPI);
+
+  // catch 404 and forward to error handler
+  app.use(function (req, res, next) {
+    next(createError(404));
+  });
+
+  server.on('error', onError);
+
+  server.listen(port, () => {
+    console.log("App port " + port);
+  });
+
+  process.on('SIGTERM', () => {
+    dbClient.close();
+    server.close(() => {
+    });
+  });
+});
+
+
+
